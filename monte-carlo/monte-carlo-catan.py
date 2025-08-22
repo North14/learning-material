@@ -9,7 +9,7 @@
 
 
 import numpy as np
-rng = np.random.default_rng(42)
+rng = np.random.default_rng()
 # import matplotlib.pyplot as plt
 # 
 # from matplotlib.animation import FuncAnimation
@@ -64,44 +64,26 @@ def generate_random_board():
     logger.debug(f"Generated board: {board}")
     return board
 
+
 def resources_from_dice(dice_array, board):
-    # Placeholder for resource calculation based on dice dice
-    logger.info("Calculating resources from dice rolls")
-    dice_array = np.atleast_1d(dice_array)
+    dice_array = np.atleast_1d(dice_array).astype(int)  # normalize to int
 
-    # Special case: robber (7)
-    is_robber = dice_array == 7
-    robber_res = np.array([[("desert", None)]] * is_robber.sum(), dtype=object)
+    # Build lookup array from board keys (works for Catan dice: 2–12 + robber 7)
+    max_dice = max(board.keys())
+    lookup = np.empty(max_dice + 1, dtype=object)
+    for k, v in board.items():
+        lookup[int(k)] = v
 
-    # Non-robber dice
-    non_robber = dice_array[~is_robber].astype(int)
-    resources = np.array([board.get(d, []) for d in non_robber], dtype=object)
-
-    # Recombine in original order
-    result = np.empty(len(dice_array), dtype=object)
-    result[is_robber] = [[("desert", None)]]
-    result[~is_robber] = resources
-    logger.debug(f"Resources from dice rolls finished")
-    return result
-#    results = []
-#    for dice in dice_array:
-#        if dice == 7:
-#            # logger.debug("dice is 7, no resources returned (robber)")
-#            results.append([(np.str_('desert'), None)])
-#        else:
-#            matching_resources = board.get(dice, [])
-#            # logger.debug(f"Resources matching dice {dice}: {matching_resources}")
-#            results.append(matching_resources)
-#    return results
+    return lookup[dice_array]
 
 def preprocess_resource_board(board):
     mapping = {}
     for row in board:
         for resource, number in row:
             if number is None:
-                mapping.setdefault(np.int16(7), []).append((resource, None))
+                mapping.setdefault(7, []).append((resource, None))
             else:
-                mapping.setdefault(number, []).append((resource, number))
+                mapping.setdefault(int(number), []).append((resource, number))
     return mapping
 
 def rc_to_axial(col, row, row_length):
@@ -114,15 +96,65 @@ def rc_to_axial(col, row, row_length):
     # Convert a numpy array of double coordinates to cubed coordinates
     return tuple((int(col - (row_length - 3)), int(row)))
 
-def get_corners_from_cubed(coord):
-    corner_directions = [
-        (-1, 0, 1), (0, -1, 1), (1, -1, 0),
-        (+1, 0, -1), (0, +1, -1), (-1, +1, 0)
-    ]
-    q, r = coord
+def axial_to_cubed(q, r):
     s = -q - r
-    return [(q + dq, r + dr, s + ds) for dq, dr, ds in corner_directions]
+    return (q, r, s)
 
+def get_corners_from_axial(coord):
+    # Given a coordinate in axial format (q, r), return the corners in cubed format
+    # Results aare in a scaled cube coordinate system, where each corner is 3x the axial coordinate
+    # https://www.redblobgames.com/grids/parts/
+
+    # corner_directions = [
+    #     (-1, 0, 1), (0, -1, 1), (1, -1, 0),
+    #     (+1, 0, -1), (0, +1, -1), (-1, +1, 0)
+    # ]
+    corner_directions = [
+        ( 2,-1,-1), ( 1, 1,-2), (-1, 2,-1),
+        (-2, 1, 1), (-1,-1, 2), ( 1,-2, 1)
+    ]
+    
+    qc, rc, sc = axial_to_cubed(*coord)
+    base = (3*qc, 3*rc, 3*sc)
+    return [(base[0]+dx, base[1]+dy, base[2]+dz) for (dx,dy,dz) in corner_directions]
+
+def corner_to_hexes(corner_coord):
+    """
+    Given a corner coordinate, return the hexes that share this corner.
+    Corner coordinates are in scaled cube coordinates (3x scale).
+    """
+    cx, cy, cz = corner_coord
+    
+    corner_directions = [
+        ( 2,-1,-1), ( 1, 1,-2), (-1, 2,-1),
+        (-2, 1, 1), (-1,-1, 2), ( 1,-2, 1)
+    ]
+    
+    hexes = []
+    for dx, dy, dz in corner_directions:
+        hx = (cx - dx) // 3
+        hy = (cy - dy) // 3
+        hz = (cz - dz) // 3
+        
+        if hx + hy + hz == 0:
+            hexes.append((hx, hy))
+    return hexes
+
+def get_corner_neighbors(coord):
+    """
+    Find all hexes that share at least one corner with the given hex.
+    Returns a set of (q, r) tuples in axial coordinates.
+    """
+    corners = get_corners_from_axial(coord)
+    neighbors = set()
+    
+    for corner in corners:
+        sharing_hexes = corner_to_hexes(corner)
+        for hex_coord in sharing_hexes:
+            if hex_coord != coord:
+                neighbors.add(hex_coord)
+    
+    return neighbors
 
 def list_valid_coords(board):
     coordinates = []
@@ -134,13 +166,16 @@ def list_valid_coords(board):
 
 def get_corners_from_board(board):
     corners_map = {}
+    corner_neighbors_map = {}
     coordinates_list = list_valid_coords(board)
     for coord in coordinates_list:
         logger.debug(f"Coordinate: {coord}")
-        corners = get_corners_from_cubed(coord)
+        corners = get_corners_from_axial(coord)
         corners_map[coord] = corners
+        corner_neighbors_map[coord] = get_corner_neighbors(coord)
     logger.debug(f"Corners map: {corners_map}, for {len(corners_map)} coordinates")
-    return corners_map
+    logger.debug(f"Corner neighbors map: {corner_neighbors_map}, for {len(corner_neighbors_map)} coordinates")
+    return corners_map, corner_neighbors_map
 
 def reverse_mapping_corners(corners_map):
     reverse_map = {}
@@ -152,7 +187,8 @@ def reverse_mapping_corners(corners_map):
     logger.debug(f"Reverse corners mapping: {reverse_map}")
     return reverse_map
 
-def analyze_corners(corners_map):
+def analyze_corners(corners_data):
+    corners_map, corner_neighbors_map = corners_data
     reverse_corners = reverse_mapping_corners(corners_map)
     shared_2_hexes = {}
     shared_3_hexes = {}
@@ -162,9 +198,13 @@ def analyze_corners(corners_map):
             shared_2_hexes[corner] = hex_list
         elif len(hex_list) == 3:
             shared_3_hexes[corner] = hex_list
-    results = [shared_2_hexes, shared_3_hexes]
+    results = [shared_2_hexes, shared_3_hexes, corner_neighbors_map]
     logger.debug(f"Shared corners with 2 hexes: {shared_2_hexes}")
+    if len(shared_2_hexes) != 14:
+        raise ValueError(f"Expected 12 shared corners with 2 hexes, found {len(shared_2_hexes)}")
     logger.debug(f"Shared corners with 3 hexes: {shared_3_hexes}")
+    if len(shared_3_hexes) != 22:
+        raise ValueError(f"Expected 24 shared corners with 3 hexes, found {len(shared_3_hexes)}")
     return results
 
 def find_best_settlements(shared_3_hexes, board, gained_resources):
@@ -211,12 +251,10 @@ if __name__ == '__main__':
 
     # Generate a random Catan board and run the Monte Carlo simulation
     board = generate_random_board()
-    dice_mean, dice_std, dice_results = monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=10_000_000)
+    dice_mean, dice_std, dice_results = monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=1_000)
     # def monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=100_000):
 
     preprocessed_board = preprocess_resource_board(board)
-    print(f"Preprocessed board: {preprocessed_board}")
-    print(f"Unprocessed board: {board}")
     gained_resources = resources_from_dice(dice_results, preprocessed_board)  # Example for robber
     logger.info(f"Resources gained from first 10 dice rolls: {gained_resources}")
 
