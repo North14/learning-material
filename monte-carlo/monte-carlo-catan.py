@@ -9,9 +9,12 @@
 
 
 import numpy as np
+rng = np.random.default_rng(42)
 # import matplotlib.pyplot as plt
 # 
 # from matplotlib.animation import FuncAnimation
+
+from collections import Counter
 
 import logging
 logger = logging.getLogger(__name__)
@@ -19,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 def monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=100_000):
     logger.info(f"Running Monte Carlo simulation for {n_trials} trials with {n_dice} dice, each with {n_sides} sides")
-    throws = np.random.randint(1, high=n_sides+1, size=(n_trials, n_dice))
-    # logger.debug(throws)
-    return np.mean(throws), np.std(throws), throws.sum(axis=1)
+    throws = rng.integers(1, n_sides+1, size=(n_trials, n_dice), dtype=np.int16)
+    logger.debug(f"First 10 throws: {throws[:10]}")
+    return throws.mean(), throws.std(), throws.sum(axis=1)
 
 def generate_random_board():
     # Generate a random board configuration for Catan
@@ -30,12 +33,12 @@ def generate_random_board():
     # Generate and shuffle the tiles
     resources = np.array(['wood'] * 4 + ['brick'] * 3 + ['sheep'] * 4 + 
                         ['wheat'] * 4 + ['ore'] * 3 + ['desert'] * 1)
-    resources = np.random.permutation(resources)
+    rng.shuffle(resources)
     logger.debug(f"Tiles: {resources}")
 
     # Generate and shuffle the numbers
     numbers = np.array([2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12])
-    numbers = np.random.permutation(numbers)
+    rng.shuffle(numbers)
     logger.debug(f"Shuffled number: {numbers}")
     
     tiles = []
@@ -59,107 +62,82 @@ def generate_random_board():
         board.append(row)
 
     logger.debug(f"Generated board: {board}")
-    return board, np.array(tiles)
+    return board
 
 def resources_from_dice(dice_array, board):
     # Placeholder for resource calculation based on dice dice
-    if np.isscalar(dice_array):
-        dice_array = np.array([dice_array])
+    logger.info("Calculating resources from dice rolls")
+    dice_array = np.atleast_1d(dice_array)
 
-    results = []
-    for dice in dice_array:
-        if dice == np.int64(7):
-            logger.debug("dice is 7, no resources returned (robber)")
-            results.append([(np.str_('desert'), None)])
-        else:
-            matching_resources = board.get(dice, [])
-            logger.debug(f"Resources matching dice {dice}: {matching_resources}")
-            results.append(matching_resources)
-    return results
+    # Special case: robber (7)
+    is_robber = dice_array == 7
+    robber_res = np.array([[("desert", None)]] * is_robber.sum(), dtype=object)
+
+    # Non-robber dice
+    non_robber = dice_array[~is_robber].astype(int)
+    resources = np.array([board.get(d, []) for d in non_robber], dtype=object)
+
+    # Recombine in original order
+    result = np.empty(len(dice_array), dtype=object)
+    result[is_robber] = [[("desert", None)]]
+    result[~is_robber] = resources
+    logger.debug(f"Resources from dice rolls finished")
+    return result
+#    results = []
+#    for dice in dice_array:
+#        if dice == 7:
+#            # logger.debug("dice is 7, no resources returned (robber)")
+#            results.append([(np.str_('desert'), None)])
+#        else:
+#            matching_resources = board.get(dice, [])
+#            # logger.debug(f"Resources matching dice {dice}: {matching_resources}")
+#            results.append(matching_resources)
+#    return results
 
 def preprocess_resource_board(board):
     mapping = {}
     for row in board:
         for resource, number in row:
             if number is None:
-                mapping.setdefault(np.int64(7), []).append((resource, None))
+                mapping.setdefault(np.int16(7), []).append((resource, None))
             else:
                 mapping.setdefault(number, []).append((resource, number))
     return mapping
 
-def list_to_double_coord(col, row, row_length):
-    # Convert row, col coordinates to double coordinates
+def rc_to_axial(col, row, row_length):
     # This assumes a hexagonal grid with the following properties:
     # - Each row has a different number of columns (3-4-5-4-3)
     # - The hexagonal grid is rotated pointy top
-    # - The desired outcome is doublewidth
+    # - The desired outcome is axial coordinates
+    # - Cubed coordinates can be calculated as (q, r, s) where s = -q - r
     # https://www.redblobgames.com/grids/hexagons/
-    q = (col * 2) - (row_length - 3)
-    if (q + row) % 2 != 0: # constraint (col + row) mod 2 == 0
-        raise ValueError("Invalid coordinates: q + row must be even for hexagonal grid")
-    return tuple((int(q), int(row)))
+    # Convert a numpy array of double coordinates to cubed coordinates
+    return tuple((int(col - (row_length - 3)), int(row)))
 
-def doublewidth_to_axial(col, row):
-    return tuple((int((col - row) / 2), int(row)))
-
-def axial_to_doublewidth(q, r):
-    return tuple((int(2 * q + r), int(r)))
-
-def qr_to_s(q, r):
-    return int(-q-r)
-
-
-def get_neigbours_from_coord(coord):
-    # Get the 6 neighbours of a hexagon given its double coordinates (Col, Row)
-    neighbour_directions = [
-    (+2, 0), (+1, -1), (-1, -1),
-    (-2, 0), (-1, +1), (+1, +1)
-    ]
-    q, r = coord
-    return [(q + dq, r + dr) for dq, dr in neighbour_directions]
-
-def get_corners_from_doublewidth(coord):
+def get_corners_from_cubed(coord):
     corner_directions = [
-            (-1, 0, 'N'), (0, +1, 'S'), (+1, 0, 'N'),
-            (0, -1, 'S'), (0, -1, 'N'), (+1, 0, 'S')
+        (-1, 0, 1), (0, -1, 1), (1, -1, 0),
+        (+1, 0, -1), (0, +1, -1), (-1, +1, 0)
     ]
     q, r = coord
-    return [(q + dq, r + dr, direction) for dq, dr, direction in corner_directions]
-
-def validate_corners(corners):
-    for q, r, _ in corners:
-        if (q + r) % 2 == 0:
-            raise ValueError("Invalid corner coordinates: col + row must be even for hexagonal grid")
-    logger.debug(f"Validated corners: {corners}")
+    s = -q - r
+    return [(q + dq, r + dr, s + ds) for dq, dr, ds in corner_directions]
 
 
 def list_valid_coords(board):
     coordinates = []
     for r, row in enumerate(board):
         for c in range(len(row)):
-            double_coord = list_to_double_coord(col=c, row=r, row_length=len(row))
+            double_coord = rc_to_axial(col=c, row=r, row_length=len(row))
             coordinates.append(double_coord)
     return coordinates
-
-def get_neighbours_from_board(board, coordinates):
-    neighbour_map = {}
-    print(f"Running neighbour finder for coordinates: {coordinates}")
-    for r, row in enumerate(board):
-        for c, tile in enumerate(row):
-            double_coord = list_to_double_coord(col=c, row=r, row_length=len(row))
-            neighbours = get_neigbours_from_coord(double_coord)
-            for neighbour in neighbours:
-                if neighbour in coordinates:
-                    neighbour_map.setdefault(neighbour, []).append((tile, double_coord))
-    return neighbour_map
 
 def get_corners_from_board(board):
     corners_map = {}
     coordinates_list = list_valid_coords(board)
-    for i, coord in enumerate(coordinates_list):
-        logger.debug(f"Coordinate: {coord}, Axial: {doublewidth_to_axial(*coord)}")
-        corners = get_corners_from_doublewidth(coord)
-        # validate_corners(corners)
+    for coord in coordinates_list:
+        logger.debug(f"Coordinate: {coord}")
+        corners = get_corners_from_cubed(coord)
         corners_map[coord] = corners
     logger.debug(f"Corners map: {corners_map}, for {len(corners_map)} coordinates")
     return corners_map
@@ -175,7 +153,7 @@ def reverse_mapping_corners(corners_map):
     return reverse_map
 
 def analyze_corners(corners_map):
-    reverse_corners = reverse_mapping_corners(corners)
+    reverse_corners = reverse_mapping_corners(corners_map)
     shared_2_hexes = {}
     shared_3_hexes = {}
     
@@ -189,39 +167,109 @@ def analyze_corners(corners_map):
     logger.debug(f"Shared corners with 3 hexes: {shared_3_hexes}")
     return results
 
+def find_best_settlements(shared_3_hexes, board, gained_resources):
+    coord_to_tile = {}
+    for r_idx, row in enumerate(board):
+        for c_idx, tile in enumerate(row):
+            logger.debug(f"Processing tile at row {r_idx}, col {c_idx}: {tile}")
+            double_coord = rc_to_axial(col=c_idx, row=r_idx, row_length=len(row))
+            coord_to_tile[double_coord] = tile
+    logger.debug(f"Coordinate to tile mapping: {coord_to_tile}")
+
+    roll_counts = Counter(gained_resources)
+
+    tile_scores = {}
+    for coord, tile in coord_to_tile.items():
+        resource, number = tile
+        tile_scores[coord] = roll_counts.get(number, 0)
+
+    settlement_scores = []
+    for corner, hex_coords in shared_3_hexes.items():
+        score = sum(tile_scores.get(hc, 0) for hc in hex_coords)
+        
+        tiles_at_corner = [coord_to_tile.get(hc) for hc in hex_coords]
+        tiles_at_corner = [(tile[0], tile[1], np.int64(tile_scores.get(hc, 0))) for hc, tile in zip(hex_coords, tiles_at_corner) if tile]
+        
+        settlement_scores.append({
+            'corner': corner,
+            'total_score': score,
+            'tiles': tiles_at_corner
+        })
+
+    sorted_settlements = sorted(settlement_scores, key=lambda x: x['total_score'], reverse=True)
+    logger.info(f"Best settlements found: {sorted_settlements[:3]}") # Log top 3
+    
+    return sorted_settlements
+
+
+
 def initiate_logging():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(funcName)s : %(message)s', filename='monte-carlo-catan.log', filemode='w', level=logging.DEBUG)
 
 if __name__ == '__main__':
     initiate_logging()
-    board, board_array = generate_random_board()
-    logger.info("Generated random Catan board")
-    logger.debug(f"Board: {board}")
-    logger.debug(f"Board array: {board_array}")
-    dice_mean, dice_std, dice_results = monte_carlo_dice_throws()
+
+    # Generate a random Catan board and run the Monte Carlo simulation
+    board = generate_random_board()
+    dice_mean, dice_std, dice_results = monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=10_000_000)
+    # def monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=100_000):
+
     preprocessed_board = preprocess_resource_board(board)
-    gained_resources = resources_from_dice(dice_results[:10], preprocessed_board)  # Example for robber
+    print(f"Preprocessed board: {preprocessed_board}")
+    print(f"Unprocessed board: {board}")
+    gained_resources = resources_from_dice(dice_results, preprocessed_board)  # Example for robber
     logger.info(f"Resources gained from first 10 dice rolls: {gained_resources}")
-    corners = get_corners_from_board(board)
-    analyzed_corners = analyze_corners(corners)
-    visualize_corner_distribution(analyzed_corners[0])  # Frequency of corners shared by 2 hexes
-    visualize_corner_distribution(analyzed_corners[1])  # Frequency of corners shared by 3 hexes
-    # full_neighbours = get_neighbours_from_board(board, coordinates_list)
 
-    # logger.info("Full neighbours mapping: %s", full_neighbours)
+    # Find all possible 2-way and 3-way corners
+    corners_map = get_corners_from_board(board)
+    analyzed_corners = analyze_corners(corners_map)
 
-    # three_hex_combinations = []
-    # for neighbour, touching in full_neighbours.items():
-    #     if len(touching) >= 3:
-    #         combo = tuple(sorted(touching, key=lambda x: x[1]))  # sort by (row,col)
-    #         three_hex_combinations.append(combo)
-    # 
-    # # Deduplicate
-    # three_hex_combinations = list(set(three_hex_combinations))
+    best_settlements = find_best_settlements(analyzed_corners[1], board, dice_results)
 
-    # print("Number of tiles with 3 neighbours:", len(three_hex_combinations))
-    # for i, combo in enumerate(three_hex_combinations):
-    #     print(f"Combination {i}: {combo}")
-    print(f"Simulation completed with {len(dice_results)} dice rolls")
+    print(f"\n" + "="*50)
+    print(f"Generated board: {board}")
+
+    print(f"\n" + "="*50)
+    print(f"Preprocessed board: {preprocessed_board}")
+    
+    print(f"\n" + "="*50)
+    print(f"Dice: {dice_results[:10]}")
+    print(f"Gained resources from first 10 dice rolls: {gained_resources[:10]}")
+
+    # print(f"\n" + "="*50)
+    # print(f"Corners mapping: {corners_map}")
+    # print(f"Shared corners with 2 hexes: {analyzed_corners[0]}")
+    # print(f"Shared corners with 3 hexes: {analyzed_corners[1]}")
+
+    if best_settlements:
+        if len(best_settlements) > 5:
+            for i in range(5):
+                best_placement = best_settlements[i]
+                print("\n" + "="*50)
+                print(f"Settlement Rank Based on Simulation: {i+1}")
+                print(f"Total simulated resource gain: {best_placement['total_score']:,}")
+                print("Tiles at this location:")
+                for resource, number, score in best_placement['tiles']:
+                    print(f"- {resource.capitalize()} ({number or 'N/A'}) with score {score:,}")
+    else:
+        print("No valid settlement locations were found.")
+
+    print(f"\n" + "="*50)
+    convert_name_scheme = {
+        'wood': 'T',
+        'brick': 'B',
+        'sheep': 'S',
+        'wheat': 'W',
+        'ore': 'O',
+        'desert': 'D'
+    }
+    for row in board:
+        row_string = ""
+        for tile in row:
+            row_string += f"{convert_name_scheme[tile[0]].capitalize()}{tile[1] or '7'}  "
+        print(f"{row_string: ^50s}")
+
+    print(f"\n" + "="*50)
+    print(f"Simulation completed with {len(dice_results):,} dice rolls")
     print(f"Average dice sum: {dice_mean:.3f} ± {dice_std:.3f}")
     # print(f"Resource generation rates: {resource_rates}")
