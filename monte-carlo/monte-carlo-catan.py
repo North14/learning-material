@@ -207,6 +207,7 @@ def analyze_corners(corners_data):
     return results
 
 def find_best_settlements(shared_3_hexes, board, gained_resources):
+    logger.info("Finding the best settlement placements")
     coord_to_tile = {}
     for r_idx, row in enumerate(board):
         logger.debug(f"Processing row {r_idx}: {row}")
@@ -216,12 +217,16 @@ def find_best_settlements(shared_3_hexes, board, gained_resources):
 
     logger.debug(f"Coordinate to tile mapping: {coord_to_tile}")
 
-    roll_counts = Counter(gained_resources)
+    max_val = np.max(gained_resources)
+    roll_counts = np.bincount(gained_resources, minlength=max_val+1)
 
     tile_scores = {}
     for coord, tile in coord_to_tile.items():
         resource, number = tile
-        tile_scores[coord] = roll_counts.get(number, 0)
+        if number is None:
+            tile_scores[coord] = 0
+        else:
+            tile_scores[coord] = roll_counts[number] if number < len(roll_counts) else 0
 
     settlement_scores = []
     for corner, hex_coords in shared_3_hexes.items():
@@ -251,7 +256,7 @@ if __name__ == '__main__':
 
     # Generate a random Catan board and run the Monte Carlo simulation
     board = generate_random_board()
-    dice_mean, dice_std, dice_results = monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=1_000_000_000)
+    dice_mean, dice_std, dice_results = monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=1_000_000)
     # def monte_carlo_dice_throws(n_dice=2, n_sides=6, n_trials=100_000):
 
     preprocessed_board = preprocess_resource_board(board)
