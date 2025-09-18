@@ -3,6 +3,7 @@
 
 Demonstration of Tabu Search algorithm for finding optimal portfolio allocation.
 Uses historical stock data to evaluate portfolio performance.
+Objective is defined as the maximization of the Sharpe ratio.
 
 Tabu search is a metaheuristic optimization algorithm that guides a local search procedure.
 The implementation uses a tabu list to avoid cycles and encourages exploration of the solution space.
