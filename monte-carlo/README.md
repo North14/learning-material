@@ -1,5 +1,5 @@
 ## Monte Carlo Catan
-- [Monte Carlo Catan](#monte-carlo/monte-carlo-catan.py)
+- [Monte Carlo Catan](./monte-carlo/monte-carlo-catan.py)
 
 Simple demonstration of monte carlo simulations being used to generate the best placement in the board game CATAN.
 The application generates a random Catan starting board,

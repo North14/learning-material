@@ -1,5 +1,5 @@
 ## Tabu Search
-- [Tabu Search](#tabu-search/tabu-search.py)
+- [Tabu Search](./tabu-search/tabu-search.py)
 
 Demonstration of Tabu Search algorithm for finding optimal portfolio allocation.
 Uses historical stock data to evaluate portfolio performance.
