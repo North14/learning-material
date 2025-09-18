@@ -18,3 +18,4 @@ E.g. (q, r, s) = (2, 1, -3)
 The following system allows a coordinate system that calculates the location of every corner for each coordinate,
 which may share a corner coordinate with a neighbour, while avoiding collisions.
 
+
