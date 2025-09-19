@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
+
 
 import random
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from collections import deque
 from sympy.utilities.iterables import multiset_permutations
 import numpy as np
@@ -68,6 +68,8 @@ class TabuSearch:
         self.tabu_list = deque(maxlen=tabu_size)
         self.best_solution = None
         self.best_performance = (-np.inf, np.inf, -np.inf)
+        self.performance_history = []
+        self.best_performance_history = []
 
     def initialize_solution(self):
         """
@@ -129,7 +131,9 @@ class TabuSearch:
         current_solution = self.initialize_solution()
         self.best_solution = current_solution
         self.best_performance = self.objective_function(current_solution)
-
+        
+        self.performance_history = []
+        self.best_performance_history = []
         no_improve_count = 0
 
         for i in range(self.max_iter):
@@ -160,6 +164,9 @@ class TabuSearch:
             current_solution = best_neighbor
             self.tabu_list.append(tuple(np.round(current_solution, 4)))
 
+            # Track performance history
+            self.performance_history.append(best_neighbor_performance[2])
+
             # update global best
             if best_neighbor_performance[2] > self.best_performance[2]:
                 self.best_solution = current_solution
@@ -168,7 +175,9 @@ class TabuSearch:
             else:
                 no_improve_count += 1
 
-            if no_improve_count >= 10:
+            self.best_performance_history.append(self.best_performance[2])
+
+            if no_improve_count >= 20:
                 current_solution = self.random_restart()
                 logger.warning(f"No improvement on iteration {i}, restarting with weights: {current_solution}")
                 no_improve_count = 0
@@ -222,6 +231,70 @@ class TabuSearch:
     #     logger.debug(neighbors)
     #     return neighbors
 
+    def plot_optimization_progress(self):
+        """Plot the optimization progress."""
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 15))
+        
+        # Current performance vs iteration
+        ax1.plot(self.performance_history, 'b-', alpha=0.7, label='Current Sharpe')
+        ax1.plot(self.best_performance_history, 'r-', linewidth=2, label='Best Sharpe')
+        ax1.set_xlabel('Iteration')
+        ax1.set_ylabel('Sharpe Ratio')
+        ax1.set_title('Optimization Progress')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Distribution of performance values
+        ax2.hist(self.performance_history, bins=20, alpha=0.7, edgecolor='black')
+        ax2.axvline(self.best_performance[2], color='red', linestyle='--', linewidth=2, label=f'Best: {self.best_performance[2]:.4f}')
+        ax2.set_xlabel('Sharpe Ratio')
+        ax2.set_ylabel('Frequency')
+        ax2.set_title('Distribution of Explored Solutions')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        # Efficient frontier comparison
+# def plot_efficient_frontier(tickers, best_performance, analyzer, fund_names):
+        random_returns = []
+        random_risks = []
+        better_returns = []
+        better_risks = []
+        for _ in range(5000):
+            # use random restart to ensure feasibility
+            w = self.random_restart()
+            r, v, s = analyzer.portfolio_performance(w)
+            if s > best_performance[2]:
+                print(f"Better random portfolio found: Return={r:.2%}, StdDev={v:.2%}, Sharpe={s:.4f}")
+                for ticker, weight in zip(tickers, w):
+                    name = fund_names.get(ticker, ticker)
+                    print(f"  {name}: {weight:.2%}")
+                better_returns.append(r)
+                better_risks.append(v)
+            else:
+                random_returns.append(r)
+                random_risks.append(v)
+
+        ax3.scatter(random_risks, random_returns, c="lightgray", label="Random Portfolios")
+        ax3.scatter(better_risks, better_returns, c="blue", marker="P", label="Random Better Portfolios")
+        ax3.scatter(best_performance[1], best_performance[0], c="red", marker="*", s=100, label="Best Tabu Solution")
+        ax3.set_xlabel("Risk (StdDev)")
+        ax3.set_ylabel("Return")
+        ax3.set_title("Efficient Frontier (Random vs. Tabu Search)")
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+
+        # Final allocation pie chart
+# def plot_final_allocation(tickers, best_weights, fund_names):
+        ax4.pie(best_weights, labels=[fund_names.get(t, t) for t in tickers], autopct='%1.1f%%', startangle=140)
+        ax4.set_title("Best Portfolio Allocation")
+
+        # ax4.bar(range(len(tickers)), best_weights, tick_label=[fund_names.get(t, t) for t in tickers])
+        # # ax4.set_xticks(rotation=45, ha="right")
+        # ax4.set_ylabel("Weight")
+        # ax4.set_title("Best Portfolio Allocation")
+        
+        plt.tight_layout()
+        plt.show()
 
 class StockAnalyzer:
     def __init__(self, tickers, period="1y", risk_free_rate=0.02):
@@ -306,6 +379,7 @@ class StockAnalyzer:
         print("Column order verification:", list(self.data.columns) == self.tickers)
 
 
+
 if __name__ == "__main__":
     logger = logging.getLogger()
     logging.basicConfig(level=logging.INFO, filename='tabu_search.log', filemode='w',)
@@ -334,11 +408,11 @@ if __name__ == "__main__":
     #     performance = analyzer.portfolio_performance(weights)
     #     print("Random Portfolio Performance (Return, StdDev, Sharpe):", performance)
 
-    for run in range(3):
-        print(f"\nRun {run + 1}/3:")
+    for run in range(1):
+        print(f"\nRun {run + 1}:")
         print('\n' + "x"*50 + '\n')
         
-        tabu_search = TabuSearch(analyzer, max_iter=200, tabu_size=50)
+        tabu_search = TabuSearch(analyzer, max_iter=500, tabu_size=10)
         best_weights, best_performance = tabu_search.search()
         
         print(f"Best Portfolio Return: {best_performance[0]:.2%}")
@@ -354,6 +428,8 @@ if __name__ == "__main__":
         #     print("Random Portfolio Weights:", weights)
         #     performance = analyzer.portfolio_performance(weights)
         #     print("Random Portfolio Performance (Return, StdDev, Sharpe):", performance)
+
+        tabu_search.plot_optimization_progress()
 
 
     if not os.path.exists("stock_data.csv"):
