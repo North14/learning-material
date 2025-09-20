@@ -10,7 +10,7 @@ import os.path
 import pandas as pd
 import logging
 
-# np.random.seed(42)
+np.random.seed(42)
 
 # Objectives:
 # 1. Find optimal portfolio allocation
@@ -100,7 +100,8 @@ class TabuSearch:
     def constraint_satisfied(self, weights):
         """Check if portfolio weights satisfy constraints."""
         # Ensure weights sum to 1 (with small tolerance)
-        if not np.isclose(np.sum(weights), 1.0, atol=1e-6):
+        weights = np.round(weights, 4)
+        if not np.isclose(np.sum(weights), 1.0, atol=1e-4):
             logger.debug(f"Weights {weights} don't sum to 1 (sum={np.sum(weights):.6f})")
             return False
         # Ensure all weights are non-negative
@@ -142,10 +143,15 @@ class TabuSearch:
             best_neighbor = None
             best_neighbor_performance = (-np.inf, np.inf, -np.inf)
 
-            for neighbor in neighbors:
-                move = tuple(np.round(neighbor, 4))
+            logger.debug(f"Current Solution: {current_solution}, Performance: {self.objective_function(current_solution)}")
+            logger.debug(f"Tabu List: {self.tabu_list}")
+            logger.debug(f"Evaluating {len(neighbors)} neighbors: {neighbors}")
+            for neighbor, move in neighbors:
                 performance = self.objective_function(neighbor)
-                if move in self.tabu_list and performance[2] <= self.best_performance[2]:
+                logger.debug(f"Evaluating neighbor: {neighbor}, Performance: {performance}, Compared to best: {best_neighbor_performance}")
+                # if move in self.tabu_list and performance[2] <= self.best_performance[2]:
+                logger.debug(f"Tabu check for move {move} in tabu list: {self.tabu_list}")
+                if move in self.tabu_list and move != 'random':
                     logger.debug(f"Neighbor {neighbor} is in Tabu list, skipping.")
                     continue
                 if not self.constraint_satisfied(neighbor):
@@ -155,14 +161,16 @@ class TabuSearch:
                 if performance[2] > best_neighbor_performance[2]:
                     best_neighbor = neighbor
                     best_neighbor_performance = performance
+                    best_move = move
             if best_neighbor is None:
                 logger.warning("No valid neighbors found, performing random restart.")
                 current_solution = self.random_restart()
-                break
+                continue
 
-            # update tabu list and current solution
-            current_solution = best_neighbor
-            self.tabu_list.append(tuple(np.round(current_solution, 4)))
+            if best_neighbor is not None:
+                # update tabu list and current solution
+                current_solution = best_neighbor
+                self.tabu_list.append(best_move)
 
             # Track performance history
             self.performance_history.append(best_neighbor_performance[2])
@@ -177,7 +185,7 @@ class TabuSearch:
 
             self.best_performance_history.append(self.best_performance[2])
 
-            if no_improve_count >= 20:
+            if no_improve_count >= 10:
                 current_solution = self.random_restart()
                 logger.warning(f"No improvement on iteration {i}, restarting with weights: {current_solution}")
                 no_improve_count = 0
@@ -187,7 +195,7 @@ class TabuSearch:
         return self.best_solution, self.best_performance
 
 
-    def get_neighbors(self, current_solution, step_size=0.05, num_random=5):
+    def get_neighbors(self, current_solution, step_size=0.05, num_random=2):
         neighbors = []
         num_assets = len(current_solution)
 
@@ -198,7 +206,8 @@ class TabuSearch:
                 neighbor[i] += delta
                 if 0 <= neighbor[i] <= 1:
                     neighbor /= np.sum(neighbor)
-                    neighbors.append(neighbor)
+                    move = (i, delta)
+                    neighbors.append((neighbor, move))
 
         # Swap moves (shift allocation between two assets)
         for i in range(num_assets):
@@ -208,12 +217,13 @@ class TabuSearch:
                 if neighbor[i] >= transfer:
                     neighbor[i] -= transfer
                     neighbor[j] += transfer
-                    neighbors.append(neighbor)
+                    move = (i, j, transfer)
+                    neighbors.append((neighbor, move))
 
         # Random reallocation moves
         for _ in range(num_random):
             neighbor = self.stock_analyzer.random_portfolio()
-            neighbors.append(neighbor)
+            neighbors.append((neighbor, 'random'))
 
         logger.info(f"Generated {len(neighbors)} neighbors")
         return neighbors
@@ -233,7 +243,7 @@ class TabuSearch:
 
     def plot_optimization_progress(self):
         """Plot the optimization progress."""
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 15))
+        _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 15))
         
         # Current performance vs iteration
         ax1.plot(self.performance_history, 'b-', alpha=0.7, label='Current Sharpe')
@@ -358,7 +368,7 @@ class StockAnalyzer:
         portfolio_return = np.dot(self.mean_returns, weights) * self.trading_days_per_year
         portfolio_stddev = np.sqrt(np.dot(weights.T, np.dot(self.cov_matrix * self.trading_days_per_year, weights)))
         sharpe = (portfolio_return - self.risk_free_rate) / portfolio_stddev
-        return portfolio_return, portfolio_stddev, sharpe
+        return round(portfolio_return, 4), round(portfolio_stddev, 4), round(sharpe, 4)
 
     def random_portfolio(self):
         weights = np.random.random(len(self.tickers))
@@ -382,10 +392,8 @@ class StockAnalyzer:
 
 if __name__ == "__main__":
     logger = logging.getLogger()
-    logging.basicConfig(level=logging.INFO, filename='tabu_search.log', filemode='w',)
-    # tickers = ['AAPL', 'GOOGL', 'MSFT', 'TSLA']
+    logging.basicConfig(format='%(asctime)s : %(levelname)s : %(funcName)s : %(message)s', level=logging.DEBUG, filename='tabu_search.log', filemode='w',)
     # tickers = ['AAPL', 'GOOGL', 'MSFT', '^SPX', 'TSLA', 'AMZN', 'FB', 'NVDA']
-    tickers = ['0P0001BM0U.ST', '0P0001H4TL.ST', '0P0001BMN5.ST', '0P00000LF6.ST']
     tickers = [
             '0P0001BM0U.ST', '0P0001H4TL.ST', '0P0001BMN5.ST', '0P00000LF6.ST',
             '0P0001QVRY.F', '0P00000LEY.ST', '0P00005U1J.ST', '0P0001ECQR.ST'
@@ -412,7 +420,7 @@ if __name__ == "__main__":
         print(f"\nRun {run + 1}:")
         print('\n' + "x"*50 + '\n')
         
-        tabu_search = TabuSearch(analyzer, max_iter=500, tabu_size=10)
+        tabu_search = TabuSearch(analyzer, max_iter=500, tabu_size=20)
         best_weights, best_performance = tabu_search.search()
         
         print(f"Best Portfolio Return: {best_performance[0]:.2%}")
