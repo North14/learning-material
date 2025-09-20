@@ -116,10 +116,6 @@ class TabuSearch:
         active_assets = np.sum(weights >= 0.05)
         if active_assets < len(weights) // 2:
             return False
-        # # Constraint 2: Minimum 5% in at least 3 assets
-        # if np.sum(weights >= 0.05) < min(4, len(weights)):
-        #     logger.debug(f"Weights {weights} violate min 5% in 4 assets constraint")
-        #     return False
         # Constraint 4: Herfindahl-Hirschman Index (HHI)
         hhi = np.sum(weights ** 2)
         if hhi > 0.20:  # penalize concentration
@@ -227,41 +223,28 @@ class TabuSearch:
 
         logger.info(f"Generated {len(neighbors)} neighbors")
         return neighbors
-    # def get_neighbors(self, current_solution, step_size=0.05):
-    #     neighbors = []
-    #     num_assets = len(current_solution)
-    #     for i in range(num_assets):
-    #         for delta in [-step_size, step_size]:
-    #             neighbor = current_solution.copy()
-    #             neighbor[i] += delta
-    #             if 0 <= neighbor[i] <= 1:
-    #                 neighbor /= np.sum(neighbor)
-    #                 neighbors.append(neighbor)
-    #     logger.info(f"Generated {len(neighbors)} neighbors")
-    #     logger.debug(neighbors)
-    #     return neighbors
 
     def plot_optimization_progress(self):
         """Plot the optimization progress."""
-        _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 15))
+        fig, axs = plt.subplots(2, 2, figsize=(15, 15))
         
         # Current performance vs iteration
-        ax1.plot(self.performance_history, 'b-', alpha=0.7, label='Current Sharpe')
-        ax1.plot(self.best_performance_history, 'r-', linewidth=2, label='Best Sharpe')
-        ax1.set_xlabel('Iteration')
-        ax1.set_ylabel('Sharpe Ratio')
-        ax1.set_title('Optimization Progress')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
+        axs[0, 0].plot(self.performance_history, 'b-', alpha=0.7, label='Current Sharpe')
+        axs[0, 0].plot(self.best_performance_history, 'r-', linewidth=2, label='Best Sharpe')
+        axs[0, 0].set_xlabel('Iteration')
+        axs[0, 0].set_ylabel('Sharpe Ratio')
+        axs[0, 0].set_title('Optimization Progress')
+        axs[0, 0].legend()
+        axs[0, 0].grid(True, alpha=0.3)
         
         # Distribution of performance values
-        ax2.hist(self.performance_history, bins=20, alpha=0.7, edgecolor='black')
-        ax2.axvline(self.best_performance[2], color='red', linestyle='--', linewidth=2, label=f'Best: {self.best_performance[2]:.4f}')
-        ax2.set_xlabel('Sharpe Ratio')
-        ax2.set_ylabel('Frequency')
-        ax2.set_title('Distribution of Explored Solutions')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+        axs[0, 1].hist(self.performance_history, bins=20, alpha=0.7, edgecolor='black')
+        axs[0, 1].axvline(self.best_performance[2], color='red', linestyle='--', linewidth=2, label=f'Best: {self.best_performance[2]:.4f}')
+        axs[0, 1].set_xlabel('Sharpe Ratio')
+        axs[0, 1].set_ylabel('Frequency')
+        axs[0, 1].set_title('Distribution of Explored Solutions')
+        axs[0, 1].legend()
+        axs[0, 1].grid(True, alpha=0.3)
 
         # Efficient frontier comparison
 # def plot_efficient_frontier(tickers, best_performance, analyzer, fund_names):
@@ -274,35 +257,28 @@ class TabuSearch:
             w = self.random_restart()
             r, v, s = analyzer.portfolio_performance(w)
             if s > best_performance[2]:
-                print(f"Better random portfolio found: Return={r:.2%}, StdDev={v:.2%}, Sharpe={s:.4f}")
-                for ticker, weight in zip(tickers, w):
-                    name = fund_names.get(ticker, ticker)
-                    print(f"  {name}: {weight:.2%}")
                 better_returns.append(r)
                 better_risks.append(v)
             else:
                 random_returns.append(r)
                 random_risks.append(v)
 
-        ax3.scatter(random_risks, random_returns, c="lightgray", label="Random Portfolios")
-        ax3.scatter(better_risks, better_returns, c="blue", marker="P", label="Random Better Portfolios")
-        ax3.scatter(best_performance[1], best_performance[0], c="red", marker="*", s=100, label="Best Tabu Solution")
-        ax3.set_xlabel("Risk (StdDev)")
-        ax3.set_ylabel("Return")
-        ax3.set_title("Efficient Frontier (Random vs. Tabu Search)")
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
+        axs[1, 0].scatter(random_risks, random_returns, c="lightgray", label="Random Portfolios")
+        axs[1, 0].scatter(better_risks, better_returns, c="blue", marker="P", label="Random Better Portfolios")
+        axs[1, 0].scatter(best_performance[1], best_performance[0], c="red", marker="*", s=150, label="Best Tabu Solution")
+        axs[1, 0].set_xlabel("Risk (StdDev)")
+        axs[1, 0].set_ylabel("Return")
+        axs[1, 0].set_title("Efficient Frontier (Random vs. Tabu Search)")
+        axs[1, 0].legend()
+        axs[1, 0].grid(True, alpha=0.3)
 
         # Final allocation pie chart
 # def plot_final_allocation(tickers, best_weights, fund_names):
-        ax4.pie(best_weights, labels=[fund_names.get(t, t) for t in tickers], autopct='%1.1f%%', startangle=140)
-        ax4.set_title("Best Portfolio Allocation")
-
-        # ax4.bar(range(len(tickers)), best_weights, tick_label=[fund_names.get(t, t) for t in tickers])
-        # # ax4.set_xticks(rotation=45, ha="right")
-        # ax4.set_ylabel("Weight")
-        # ax4.set_title("Best Portfolio Allocation")
+        axs[1, 1].pie(best_weights, labels=[fund_names.get(t, t) for t in tickers], autopct='%1.1f%%', startangle=140)
+        axs[1, 1].set_title("Best Portfolio Allocation")
         
+        plt.suptitle("Tabu Search Portfolio Optimization Results", fontsize=18, y=1.02)
+
         plt.tight_layout()
         plt.show()
 
@@ -395,20 +371,26 @@ if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(funcName)s : %(message)s', level=logging.DEBUG, filename='tabu_search.log', filemode='w',)
     # tickers = ['AAPL', 'GOOGL', 'MSFT', '^SPX', 'TSLA', 'AMZN', 'FB', 'NVDA']
     tickers = [
-            '0P0001BM0U.ST', '0P0001H4TL.ST', '0P0001BMN5.ST', '0P00000LF6.ST',
-            '0P0001QVRY.F', '0P00000LEY.ST', '0P00005U1J.ST', '0P0001ECQR.ST'
+            '0P0001BM0U.ST', '0P0001H4TL.ST', '0P00000LF6.ST',
+            '0P00000LEY.ST', '0P00005U1J.ST', '0P0001ECQR.ST',
+            '0P0000ULAP.ST', '0P0001BM0Y.ST', '0P0001K2MJ.ST'
                ]
     fund_names = {
         '0P0001BM0U.ST': "Avanza Auto 2",
         '0P0001H4TL.ST': "Avanza Emerging Markets", 
         '0P0001BMN5.ST': "Länsförsäkringar Global Index",
         '0P00000LF6.ST': "Swedbank Robur Small Cap Global A",
-        '0P0001QVRY.F': "Swedbank Robur Emerging Europe C",
+        '0P0001QVRY.F': "Swedbank Robur Emerging Europe C", # Note: frankfurt traded fund
         '0P00000LEY.ST': "Swedbank Robur Småbolagsfond Sverige A",
         '0P00005U1J.ST': "Avanza Zero",
-        '0P0001ECQR.ST': "Avanza Global"
+        '0P0001ECQR.ST': "Avanza Global",
+        '0P0001J6WY.ST': "Avanza Europa",
+        '0P0000ULAP.ST': "Spiltan Aktiefond Investmentbolag",
+        '0P0001BM0Y.ST': "Avanza Auto 6",
+        '0P0000X5RL.ST': "Avanza 75",
+        '0P0001K2MJ.ST': "Avanza World Tech by TIN"
     }
-    analyzer = StockAnalyzer(tickers, period="1y", risk_free_rate=0.07)
+    analyzer = StockAnalyzer(tickers, period="2y", risk_free_rate=0.05)
     print(analyzer.print_info())
     # for weights in multiset_permutations([0, 0, 0, 1]):
     #     weights = np.array(weights, dtype=float)
@@ -416,7 +398,7 @@ if __name__ == "__main__":
     #     performance = analyzer.portfolio_performance(weights)
     #     print("Random Portfolio Performance (Return, StdDev, Sharpe):", performance)
 
-    for run in range(1):
+    for run in range(5):
         print(f"\nRun {run + 1}:")
         print('\n' + "x"*50 + '\n')
         
@@ -438,7 +420,4 @@ if __name__ == "__main__":
         #     print("Random Portfolio Performance (Return, StdDev, Sharpe):", performance)
 
         tabu_search.plot_optimization_progress()
-
-
-    if not os.path.exists("stock_data.csv"):
-        analyzer.save_to_csv("stock_data.csv")
+        np.random.seed(42 + run)
