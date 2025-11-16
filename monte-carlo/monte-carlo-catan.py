@@ -94,7 +94,7 @@ def rc_to_axial(col, row, row_length):
     # - Cubed coordinates can be calculated as (q, r, s) where s = -q - r
     # https://www.redblobgames.com/grids/hexagons/
     # Convert a numpy array of double coordinates to cubed coordinates
-    return tuple((int(col - (row_length - 3)), int(row)))
+    return tuple((int(col - (row_length - 3)), int(-row)))
 
 def axial_to_cubed(q, r):
     s = -q - r
@@ -102,7 +102,6 @@ def axial_to_cubed(q, r):
 
 def get_corners_from_axial(coord):
     # Given a coordinate in axial format (q, r), return the corners in cubed format
-    # Results aare in a scaled cube coordinate system, where each corner is 3x the axial coordinate
     # https://www.redblobgames.com/grids/parts/
 
     # corner_directions = [
@@ -160,8 +159,8 @@ def list_valid_coords(board):
     coordinates = []
     for r, row in enumerate(board):
         for c in range(len(row)):
-            double_coord = rc_to_axial(col=c, row=r, row_length=len(row))
-            coordinates.append(double_coord)
+            axial_coord = rc_to_axial(col=c, row=r, row_length=len(row))
+            coordinates.append(axial_coord)
     return coordinates
 
 def get_corners_from_board(board):
@@ -211,9 +210,11 @@ def find_best_settlements(shared_3_hexes, board, gained_resources):
     logger.info("Finding the best settlement placements")
     coord_to_tile = {}
     for r_idx, row in enumerate(board):
+        logger.debug(f"Processing row {r_idx}: {row}")
         for c_idx, tile in enumerate(row):
             double_coord = rc_to_axial(col=c_idx, row=r_idx, row_length=len(row))
             coord_to_tile[double_coord] = tile
+
     logger.debug(f"Coordinate to tile mapping: {coord_to_tile}")
 
     max_val = np.max(gained_resources)
